@@ -1,0 +1,21 @@
+# Secrets & state — never bake into the image (mount at runtime instead)
+config.yaml
+credentials.json
+token.json
+sync.db
+*.log
+
+# Local data/backups (mounted at runtime, never baked into the image)
+data/
+backups/
+
+# Tests, docs, and dev cruft
+test_*.py
+*.md
+.git/
+.gitignore
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/

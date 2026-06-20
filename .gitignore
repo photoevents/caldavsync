@@ -1,0 +1,21 @@
+# Secrets & credentials — never commit
+config.yaml
+credentials.json
+client_secret_*.json
+token.json
+
+# Runtime state
+sync.db
+*.log
+
+# Local calendar backups (.ics exports contain real event data)
+backups/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/

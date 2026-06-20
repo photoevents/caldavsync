@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caldavsync"
+version = "0.4.0"
+description = "Bidirectional Google Calendar <-> Nextcloud/CalDAV sync (self-hosted)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Christian Titeca" }]
+keywords = ["calendar", "sync", "google-calendar", "caldav", "nextcloud", "icalendar"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Scheduling",
+]
+dependencies = [
+    "google-api-python-client",
+    "google-auth-httplib2",
+    "google-auth-oauthlib",
+    "caldav",
+    "icalendar",
+    "pyyaml",
+    "python-dateutil",
+]
+
+[project.scripts]
+caldavsync = "main:main"
+
+[tool.setuptools]
+# Flat module layout (run as `python main.py` or via the `caldavsync` script).
+py-modules = [
+    "main",
+    "config_loader",
+    "sync_db",
+    "sync_engine",
+    "google_client",
+    "caldav_client",
+    "ical_convert",
+    "mappings",
+]

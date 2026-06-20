@@ -1,0 +1,30 @@
+# CalDAVSync — docker-compose deployment (e.g. on a home server / NAS)
+#
+# Layout on the host (next to this file):
+#   config.yaml          your config, with state_db: "/data/sync.db"
+#                                       and logging.file: "/data/caldavsync.log"
+#   credentials.json     Google OAuth client (Desktop app)
+#   token.json           OAuth token (generate once on a desktop, copy here)
+#   data/                persistent state — put your existing sync.db here so
+#                        the deployment continues from the current links!
+#
+# Then:  docker compose up -d --build   /   docker compose logs -f
+
+services:
+  caldavsync:
+    build: .
+    image: caldavsync:latest
+    container_name: caldavsync
+    restart: unless-stopped
+    # Reliable public DNS — avoids slow/flaky resolution via the host resolver
+    # (e.g. when Pi-hole or the host's first nameserver is intermittent).
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./credentials.json:/app/credentials.json:ro
+      - ./token.json:/app/token.json          # read-write: token auto-refreshes
+      - ./data:/data                           # sync.db + logs (seed with existing sync.db)
+    # Default command is --daemon (see Dockerfile). To run a single sync:
+    # command: ["--once"]

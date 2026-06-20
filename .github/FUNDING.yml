@@ -1,0 +1,13 @@
+# Enables the "Sponsor" button on the GitHub repo.
+# Uncomment and fill in whichever platform(s) you use, then delete the rest.
+#
+# GitHub Sponsors (needs enrollment + Stripe/bank; approval can take time):
+# github: photoevents
+#
+# Simpler, no-approval options — create a free account, paste your handle:
+# ko_fi: yourhandle
+# buy_me_a_coffee: yourhandle
+# liberapay: yourhandle
+#
+# Or any direct link (PayPal.me, etc.):
+# custom: ["https://paypal.me/yourhandle"]

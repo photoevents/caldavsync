@@ -1,0 +1,44 @@
+# CalDAVSync configuration.
+# Copy this file to config.yaml and fill in your own values.
+# config.yaml is gitignored so your credentials never get committed.
+
+google:
+  credentials_file: "credentials.json"       # OAuth2 client (Desktop app) credentials
+  token_file: "token.json"                    # Auto-generated after first auth
+  calendar_id: "primary"                      # used only in single-pair mode (see calendar_pairs)
+
+nextcloud:
+  url: "https://nextcloud.example.com/remote.php/dav"
+  username: "admin"
+  password: "app-password-here"               # Nextcloud app password (NOT your main password)
+  calendar_name: "Personal"                   # used only in single-pair mode (see calendar_pairs)
+
+# Optional: sync several calendars at once. If present, this overrides the
+# single google.calendar_id / nextcloud.calendar_name above. Each pair keeps
+# its own independent sync state, and may override direction and
+# conflict_resolution (otherwise the sync.* defaults below apply).
+# calendar_pairs:
+#   - name: "Personal"                        # label (defaults to caldav_calendar_name)
+#     google_calendar_id: "primary"
+#     caldav_calendar_name: "Personal"
+#     conflict_resolution: "caldav_wins"      # this calendar: Nextcloud is the source of truth
+#   - name: "Work"
+#     google_calendar_id: "abc123@group.calendar.google.com"
+#     caldav_calendar_name: "Work"
+#   - name: "Holidays (subscribed)"
+#     google_calendar_id: "xyz@group.calendar.google.com"
+#     caldav_calendar_name: "Holidays"
+#     direction: "google_to_caldav"           # read-only on Google -> one-way only
+
+sync:
+  direction: "bidirectional"                  # "google_to_caldav", "caldav_to_google", "bidirectional"
+  conflict_resolution: "newest_wins"          # "newest_wins", "google_wins", "caldav_wins"
+  interval_seconds: 300                        # Daemon sync interval (5 min)
+  sync_past_days: 30                           # How far back to sync
+  sync_future_days: 365                        # How far ahead to sync
+  delete_propagation: true                     # Sync deletions
+  send_invitations: false                      # email attendees on create/update/delete (default: never)
+
+logging:
+  level: "INFO"                                # DEBUG, INFO, WARNING, ERROR
+  file: "caldavsync.log"

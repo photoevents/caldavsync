@@ -1,0 +1,9 @@
+# Normalize line endings: store text as LF in the repo so files behave
+# correctly when deployed on Linux (a server, Docker), even when edited on
+# Windows.
+* text=auto eol=lf
+
+# Explicitly binary (none yet, but keep the section for future assets)
+*.png binary
+*.jpg binary
+*.ico binary
