@@ -285,6 +285,44 @@ def main():
     db.close(); passed += 1
     print("PASS 18: one-way pair acknowledges non-authoritative change and settles")
 
+    # 19. Ignore-list: an event on the list is skipped, no write attempted
+    db = fresh_db()
+    db.add_ignored("u19", summary="nope")
+    g = FakeGoogle([gevent("u19", "e", NOW.isoformat())])
+    c = FakeCalDAV([])
+    s = engine(g, c, db).run_once()
+    assert s.ignored == 1 and s.created_caldav == 0, s.summary()
+    db.close(); passed += 1
+    print("PASS 19: ignore-listed event is skipped (no write)")
+
+    # 20. Review decider 'ignore' persists and isn't re-prompted next run
+    db = fresh_db()
+    calls = []
+    def decider_ignore(action, uid, summary):
+        calls.append(uid); return "ignore"
+    g = FakeGoogle([gevent("u20", "e", NOW.isoformat())])
+    c = FakeCalDAV([])
+    eng = SyncEngine(g, c, db, direction="bidirectional", decider=decider_ignore)
+    s = eng.run_once()
+    assert s.ignored == 1 and s.created_caldav == 0 and db.is_ignored("u20"), s.summary()
+    s2 = eng.run_once()
+    assert s2.ignored == 1 and len(calls) == 1, "decider not re-prompted once ignored"
+    db.close(); passed += 1
+    print("PASS 20: review 'ignore' persists; not re-prompted on later runs")
+
+    # 21. Review decider 'apply' applies; 'skip' skips this run only
+    db = fresh_db()
+    s = SyncEngine(FakeGoogle([gevent("u21", "e", NOW.isoformat())]), FakeCalDAV([]), db,
+                   direction="bidirectional", decider=lambda a, u, m: "apply").run_once()
+    assert s.created_caldav == 1, s.summary()
+    db.close()
+    db = fresh_db()
+    s = SyncEngine(FakeGoogle([gevent("u22", "e", NOW.isoformat())]), FakeCalDAV([]), db,
+                   direction="bidirectional", decider=lambda a, u, m: "skip").run_once()
+    assert s.skipped_review == 1 and s.created_caldav == 0, s.summary()
+    db.close(); passed += 1
+    print("PASS 21: review 'apply' writes; 'skip' defers without writing")
+
     os.remove("test_p2.db")
     print("\nAll %d Phase 2 tests passed." % passed)
 

@@ -40,6 +40,17 @@ CREATE TABLE IF NOT EXISTS sync_log (
     summary TEXT,
     details TEXT
 );
+
+-- Events the user chose to permanently ignore during --review. Automatic
+-- runs skip these so they are never proposed again.
+CREATE TABLE IF NOT EXISTS ignored (
+    pair TEXT NOT NULL DEFAULT 'default',
+    uid TEXT NOT NULL,
+    summary TEXT,
+    reason TEXT,
+    created TEXT,
+    PRIMARY KEY (pair, uid)
+);
 """
 
 
@@ -148,3 +159,27 @@ class SyncDB:
             (_now(), pair, action, direction, uid, summary, details),
         )
         self.conn.commit()
+
+    # --- ignore list ---------------------------------------------------
+
+    def is_ignored(self, uid: str, pair: str = "default") -> bool:
+        cur = self.conn.execute(
+            "SELECT 1 FROM ignored WHERE pair = ? AND uid = ?", (pair, uid)
+        )
+        return cur.fetchone() is not None
+
+    def add_ignored(self, uid: str, pair: str = "default", summary: str = "", reason: str = "") -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO ignored (pair, uid, summary, reason, created) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (pair, uid, summary, reason, _now()),
+        )
+        self.conn.commit()
+
+    def remove_ignored(self, uid: str, pair: str = "default") -> None:
+        self.conn.execute("DELETE FROM ignored WHERE pair = ? AND uid = ?", (pair, uid))
+        self.conn.commit()
+
+    def list_ignored(self, pair: str = "default") -> list[sqlite3.Row]:
+        cur = self.conn.execute("SELECT * FROM ignored WHERE pair = ?", (pair,))
+        return cur.fetchall()

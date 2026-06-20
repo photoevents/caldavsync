@@ -71,7 +71,16 @@ cloud middleman.
 python main.py --once              # single sync run
 python main.py --once --dry-run    # show what would sync, change nothing
 python main.py --daemon            # continuous sync at the configured interval
+python main.py --review            # approve/skip/ignore each change interactively
 ```
+
+### Reviewing changes interactively
+
+`--review` walks you through every change the sync wants to make and asks per
+event: **[a]pply**, **[s]kip** (just this run), **[i]gnore forever**, or
+**[q]uit**. Events you ignore are remembered, so automatic `--once` / `--daemon`
+runs will silently skip them from then on. Handy for one-off events you never
+want mirrored, or for cautiously working through the first few syncs.
 
 **Acceptance test:** create / edit / delete an event on *either* side (try a
 recurring event and one with attendees/color too), run `python main.py --once`,

@@ -40,7 +40,7 @@ def setup_logging(level: str, logfile: str) -> None:
     )
 
 
-def build_engines(config: dict, db: SyncDB, dry_run: bool) -> list[SyncEngine]:
+def build_engines(config: dict, db: SyncDB, dry_run: bool, decider=None) -> list[SyncEngine]:
     """Build one SyncEngine per configured calendar pair, sharing the DB."""
     g = config["google"]
     n = config["nextcloud"]
@@ -63,6 +63,7 @@ def build_engines(config: dict, db: SyncDB, dry_run: bool) -> list[SyncEngine]:
                 dry_run=dry_run,
                 pair=pair["name"],
                 send_invitations=s["send_invitations"],
+                decider=decider,
             )
         )
     return engines
@@ -77,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
                       help="link pre-existing events across both sides by content (one-time migration aid)")
     mode.add_argument("--setup", action="store_true",
                       help="interactive wizard to create config.yaml")
+    mode.add_argument("--review", action="store_true",
+                      help="interactively approve/skip/ignore each proposed change")
     parser.add_argument("--dry-run", action="store_true", help="report actions without writing changes")
     parser.add_argument("--apply", action="store_true",
                         help="with --adopt: actually write the links (default is preview only)")
@@ -97,9 +100,14 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(config["logging"]["level"], config["logging"]["file"])
     log = logging.getLogger("caldavsync")
 
+    decider = None
+    if args.review:
+        from review import make_review_decider
+        decider = make_review_decider()
+
     db = SyncDB(config["sync"]["state_db"])
     try:
-        engines = build_engines(config, db, args.dry_run)
+        engines = build_engines(config, db, args.dry_run, decider=decider)
     except (CalDAVError, FileNotFoundError) as exc:
         log.error("Startup failed: %s", exc)
         db.close()
@@ -133,6 +141,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.adopt:
             adopt_all()
+        elif args.review:
+            from review import ReviewQuit
+            print("Review mode — for each change: [a]pply / [s]kip / [i]gnore forever / [q]uit "
+                  "(Enter = skip).")
+            try:
+                sync_all()
+            except ReviewQuit:
+                log.info("Review stopped by user.")
         elif args.once:
             sync_all()
         else:

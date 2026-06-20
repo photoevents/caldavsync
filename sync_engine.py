@@ -48,15 +48,20 @@ class SyncStats:
     conflicts: int = 0
     unchanged: int = 0
     skipped_overrides: int = 0
+    ignored: int = 0
+    skipped_review: int = 0
     errors: int = 0
     details: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
+        extra = ""
+        if self.ignored or self.skipped_review:
+            extra = f" ignored={self.ignored} skipped_review={self.skipped_review}"
         return (
             f"caldav(+{self.created_caldav}/~{self.updated_caldav}/-{self.deleted_caldav}) "
             f"google(+{self.created_google}/~{self.updated_google}/-{self.deleted_google}) "
             f"linked={self.linked} conflicts={self.conflicts} unchanged={self.unchanged} "
-            f"skipped_overrides={self.skipped_overrides} errors={self.errors}"
+            f"skipped_overrides={self.skipped_overrides}{extra} errors={self.errors}"
         )
 
 
@@ -74,10 +79,14 @@ class SyncEngine:
         dry_run: bool = False,
         pair: str = "default",
         send_invitations: bool = False,
+        decider=None,
     ) -> None:
         self.google = google
         self.caldav = caldav
         self.db = db
+        # Optional interactive gate: decider(action, uid, summary) ->
+        # "apply" | "skip" | "ignore". None means apply everything.
+        self.decider = decider
         self.direction = direction
         self.conflict_resolution = conflict_resolution
         self.delete_propagation = delete_propagation
@@ -216,12 +225,32 @@ class SyncEngine:
         c_time = _parse_time(c.get("caldav_updated"))
         return "google" if g_time >= c_time else "caldav"
 
+    def _decide(self, action: str, uid: str, summary: str, stats: SyncStats) -> bool:
+        """Gate a pending write through the persistent ignore-list and the
+        optional interactive decider. Returns True to proceed with the write."""
+        if self.db.is_ignored(uid, self.pair):
+            stats.ignored += 1
+            return False
+        if self.decider is None:
+            return True
+        choice = self.decider(action, uid, summary)
+        if choice == "ignore":
+            self.db.add_ignored(uid, self.pair, summary, "review")
+            stats.ignored += 1
+            return False
+        if choice == "skip":
+            stats.skipped_review += 1
+            return False
+        return True
+
     # --- writes: Google -> CalDAV --------------------------------------
 
     def _create_in_caldav(self, g, stats: SyncStats) -> None:
         if not self.to_caldav:
             return
         uid = g["uid"]
+        if not self._decide(f"CREATE on CalDAV: {g.get('summary', '')}", uid, g.get("summary", ""), stats):
+            return
         log.info("%sCREATE -> CalDAV %r (%s)", self.prefix, g["summary"], uid)
         if self.dry_run:
             stats.created_caldav += 1
@@ -243,6 +272,8 @@ class SyncEngine:
         if not href:
             self._create_in_caldav(g, stats)
             return
+        if not self._decide(f"UPDATE on CalDAV: {g.get('summary', '')}", link["uid"], g.get("summary", ""), stats):
+            return
         log.info("%sUPDATE -> CalDAV %r (%s)", self.prefix, g["summary"], link["uid"])
         if self.dry_run:
             stats.updated_caldav += 1
@@ -256,6 +287,8 @@ class SyncEngine:
     def _delete_on_caldav(self, link, c, stats: SyncStats) -> None:
         if not (self.delete_propagation and self.to_caldav):
             stats.unchanged += 1
+            return
+        if not self._decide(f"DELETE on CalDAV: {c.get('summary', '')}", link["uid"], c.get("summary", ""), stats):
             return
         log.info("%sDELETE -> CalDAV %r (%s) [removed on Google]", self.prefix, c["summary"], link["uid"])
         if self.dry_run:
@@ -272,6 +305,8 @@ class SyncEngine:
         if not self.to_google:
             return
         uid = c["uid"]
+        if not self._decide(f"CREATE on Google: {c.get('summary', '')}", uid, c.get("summary", ""), stats):
+            return
         log.info("%sCREATE -> Google %r (%s)", self.prefix, c["summary"], uid)
         if self.dry_run:
             stats.created_google += 1
@@ -293,6 +328,8 @@ class SyncEngine:
         if not google_event_id:
             self._create_in_google(c, stats)
             return
+        if not self._decide(f"UPDATE on Google: {c.get('summary', '')}", link["uid"], c.get("summary", ""), stats):
+            return
         log.info("%sUPDATE -> Google %r (%s)", self.prefix, c["summary"], link["uid"])
         if self.dry_run:
             stats.updated_google += 1
@@ -306,6 +343,8 @@ class SyncEngine:
     def _delete_on_google(self, link, g, stats: SyncStats) -> None:
         if not (self.delete_propagation and self.to_google):
             stats.unchanged += 1
+            return
+        if not self._decide(f"DELETE on Google: {g.get('summary', '')}", link["uid"], g.get("summary", ""), stats):
             return
         log.info("%sDELETE -> Google %r (%s) [removed on CalDAV]", self.prefix, g["summary"], link["uid"])
         if self.dry_run:
