@@ -141,6 +141,31 @@ def main():
     os.remove("test_multi.yaml")
     passed += 1; print("PASS 10: multi-pair config honored; duplicate names rejected")
 
+    # 11. Setup wizard: build_config output round-trips through load_config
+    import yaml as _y
+    from setup_wizard import build_config, default_sync_options
+    cfg_dict = build_config(
+        {"url": "https://nc/dav", "username": "u", "password": "p"},
+        {"credentials_file": "credentials.json", "token_file": "token.json"},
+        [
+            {"name": "Personal", "google_calendar_id": "primary",
+             "caldav_calendar_name": "personal", "direction": "bidirectional",
+             "conflict_resolution": "caldav_wins"},
+            {"name": "Holidays", "google_calendar_id": "h@g", "caldav_calendar_name": "Holidays",
+             "direction": "google_to_caldav", "conflict_resolution": "newest_wins"},
+        ],
+        default_sync_options(past_days=14, future_days=180),
+    )
+    with open("test_wizard.yaml", "w", encoding="utf-8") as fh:
+        _y.safe_dump(cfg_dict, fh, sort_keys=False)
+    loaded = load_config("test_wizard.yaml")
+    assert len(loaded["calendar_pairs"]) == 2
+    assert loaded["calendar_pairs"][0]["conflict_resolution"] == "caldav_wins"
+    assert loaded["calendar_pairs"][1]["direction"] == "google_to_caldav"
+    assert loaded["sync"]["sync_past_days"] == 14 and loaded["sync"]["sync_future_days"] == 180
+    os.remove("test_wizard.yaml")
+    passed += 1; print("PASS 11: setup wizard output is a valid, loadable config")
+
     print("\nAll %d Phase 3 tests passed." % passed)
 
 

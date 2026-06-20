@@ -75,11 +75,18 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--daemon", action="store_true", help="sync continuously at the configured interval")
     mode.add_argument("--adopt", action="store_true",
                       help="link pre-existing events across both sides by content (one-time migration aid)")
+    mode.add_argument("--setup", action="store_true",
+                      help="interactive wizard to create config.yaml")
     parser.add_argument("--dry-run", action="store_true", help="report actions without writing changes")
     parser.add_argument("--apply", action="store_true",
                         help="with --adopt: actually write the links (default is preview only)")
     parser.add_argument("--config", default="config.yaml", help="path to config file")
     args = parser.parse_args(argv)
+
+    if args.setup:
+        # Runs before load_config — config.yaml may not exist yet.
+        from setup_wizard import run_setup
+        return run_setup(args.config)
 
     try:
         config = load_config(args.config)

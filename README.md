@@ -50,11 +50,14 @@ cloud middleman.
    `credentials.json` in this folder.
 3. **Nextcloud app password** — Nextcloud → Settings → Security → Create new app
    password (use this, *not* your login password).
-4. **Configure**
+4. **Configure** — easiest is the interactive wizard, which lists your Google
+   and CalDAV calendars and writes `config.yaml` for you (asking per pair which
+   direction and which side wins conflicts):
    ```bash
-   cp config.example.yaml config.yaml   # then edit
+   python main.py --setup
    ```
-   Set the Nextcloud `password` and make `calendar_name` match an existing
+   Prefer to do it by hand? Copy `config.example.yaml` to `config.yaml` and edit
+   it — set the Nextcloud `password` and make `calendar_name` match an existing
    calendar's display name.
 5. **First run** (opens a browser once to authorize, then caches `token.json`):
    ```bash
