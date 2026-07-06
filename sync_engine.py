@@ -278,7 +278,10 @@ class SyncEngine:
         if self.dry_run:
             stats.updated_caldav += 1
             return
-        res = self.caldav.update_event(href, event_to_ical(g))
+        # Adopted events have a different UID on the CalDAV side; keep it —
+        # servers reject a PUT that changes an existing object's UID.
+        caldav_uid = link["caldav_uid"] or link["uid"]
+        res = self.caldav.update_event(href, event_to_ical(g, uid=caldav_uid))
         self._record(link["uid"], g=g, caldav_res=res)
         if not from_conflict:
             self.db.log_action("update", G2C, link["uid"], g.get("summary", ""), pair=self.pair)

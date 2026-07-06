@@ -66,6 +66,7 @@ class FakeCalDAV:
 
     def update_event(self, href, ical_bytes):
         self._n += 1
+        self.last_update_ical = ical_bytes
         return {"href": href, "etag": "cupd%d" % self._n}
 
     def delete_event(self, href):
@@ -322,6 +323,21 @@ def main():
     assert s.skipped_review == 1 and s.created_caldav == 0, s.summary()
     db.close(); passed += 1
     print("PASS 21: review 'apply' writes; 'skip' defers without writing")
+
+    # 22. Updating an ADOPTED event keeps the CalDAV-side UID (servers reject
+    #     a PUT that changes an existing object's UID). Regression: a Google
+    #     edit to an adopted event never reached CalDAV.
+    db = fresh_db()
+    db.upsert_state("G-uid22", caldav_uid="C-uid22", google_event_id="g22",
+                    google_etag="OLD", caldav_href="http://cal/C-uid22.ics", caldav_etag="ce")
+    g = FakeGoogle([gevent("G-uid22", "NEW", NOW.isoformat(), summary="Edited by Hilde")])
+    c = FakeCalDAV([cevent("C-uid22", "ce", NOW.isoformat(), summary="Old title")])
+    s = SyncEngine(g, c, db, direction="google_to_caldav").run_once()
+    assert s.updated_caldav == 1 and s.errors == 0, s.summary()
+    assert b"UID:C-uid22" in c.last_update_ical, "update must keep the CalDAV UID"
+    assert b"UID:G-uid22" not in c.last_update_ical, "must not write the Google UID"
+    db.close(); passed += 1
+    print("PASS 22: update of adopted event keeps CalDAV-side UID (no UID clash)")
 
     os.remove("test_p2.db")
     print("\nAll %d Phase 2 tests passed." % passed)

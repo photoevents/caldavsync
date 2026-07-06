@@ -20,14 +20,19 @@ from icalendar.prop import vCalAddress, vRecur
 PRODID = "-//CalDAVSync//Google-Nextcloud Sync//EN"
 
 
-def event_to_ical(event: dict[str, Any]) -> bytes:
-    """Build a single-VEVENT iCalendar document (bytes) from a normalized event."""
+def event_to_ical(event: dict[str, Any], uid: Optional[str] = None) -> bytes:
+    """Build a single-VEVENT iCalendar document (bytes) from a normalized event.
+
+    ``uid`` overrides the VEVENT UID. Needed when updating a CalDAV resource
+    that was adopted from a migration and therefore has a different UID than
+    the Google side — CalDAV servers reject changing an existing object's UID.
+    """
     cal = Calendar()
     cal.add("prodid", PRODID)
     cal.add("version", "2.0")
 
     vevent = Event()
-    vevent.add("uid", event["uid"])
+    vevent.add("uid", uid or event["uid"])
     vevent.add("summary", event.get("summary") or "(no title)")
     vevent.add("dtstamp", datetime.now(timezone.utc))
 
