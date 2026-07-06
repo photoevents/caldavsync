@@ -330,7 +330,7 @@ def main():
     db = fresh_db()
     db.upsert_state("G-uid22", caldav_uid="C-uid22", google_event_id="g22",
                     google_etag="OLD", caldav_href="http://cal/C-uid22.ics", caldav_etag="ce")
-    g = FakeGoogle([gevent("G-uid22", "NEW", NOW.isoformat(), summary="Edited by Hilde")])
+    g = FakeGoogle([gevent("G-uid22", "NEW", NOW.isoformat(), summary="Edited on Google")])
     c = FakeCalDAV([cevent("C-uid22", "ce", NOW.isoformat(), summary="Old title")])
     s = SyncEngine(g, c, db, direction="google_to_caldav").run_once()
     assert s.updated_caldav == 1 and s.errors == 0, s.summary()
