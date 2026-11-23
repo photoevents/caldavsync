@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import logging.handlers
 import sys
 import time
 
@@ -30,7 +31,9 @@ def setup_logging(level: str, logfile: str) -> None:
         pass
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
     try:
-        handlers.append(logging.FileHandler(logfile, encoding="utf-8"))
+        # Rotate so a long-running daemon can't fill the disk (5 MB x 4 files).
+        handlers.append(logging.handlers.RotatingFileHandler(
+            logfile, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"))
     except OSError:
         pass  # console-only is fine if the log file can't be opened
     logging.basicConfig(
