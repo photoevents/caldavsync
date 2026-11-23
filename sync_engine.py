@@ -171,7 +171,15 @@ class SyncEngine:
     def _reconcile_known(self, link, g: Optional[dict], c: Optional[dict], stats: SyncStats) -> None:
         if g and c:
             g_changed = link["google_etag"] != g["google_etag"]
-            c_changed = link["caldav_etag"] != c["caldav_etag"]
+            if link["caldav_etag"] is None and c["caldav_etag"] is not None:
+                # No CalDAV etag stored yet (links made before etags were read
+                # correctly): adopt the current one as the baseline instead of
+                # treating every such event as changed and mass-pushing it.
+                if not self.dry_run:
+                    self._record(link["uid"], c=c)
+                c_changed = False
+            else:
+                c_changed = link["caldav_etag"] != c["caldav_etag"]
             if g_changed and c_changed:
                 self._resolve_conflict(link, g, c, stats)
             elif g_changed:

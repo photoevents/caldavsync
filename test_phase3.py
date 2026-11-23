@@ -166,6 +166,58 @@ def main():
     os.remove("test_wizard.yaml")
     passed += 1; print("PASS 11: setup wizard output is a valid, loadable config")
 
+    # --- Time zone regressions (Tai Chi incident) ------------------------
+    from zoneinfo import ZoneInfo
+    from google_client import GoogleClient, _datetime_field
+
+    # 12. Google event with an IANA zone -> CalDAV gets TZID + VTIMEZONE,
+    #     never a floating time.
+    g = GoogleClient._normalize({
+        "iCalUID": "tz1", "summary": "Tai Chi", "etag": "e", "updated": "2026-11-22T00:00:00Z",
+        "start": {"dateTime": "2026-11-23T10:00:00+01:00", "timeZone": "Europe/Brussels"},
+        "end": {"dateTime": "2026-11-23T11:00:00+01:00", "timeZone": "Europe/Brussels"},
+    })
+    assert getattr(g["start"].tzinfo, "key", None) == "Europe/Brussels"
+    ical = event_to_ical(g).decode()
+    assert "DTSTART;TZID=Europe/Brussels:20261123T100000" in ical, ical
+    assert "BEGIN:VTIMEZONE" in ical, "VTIMEZONE must accompany TZID"
+    passed += 1; print("PASS 12: Google->CalDAV keeps the IANA zone (TZID + VTIMEZONE)")
+
+    # 13. Google event with only an offset -> written as UTC (Z), not floating
+    g = GoogleClient._normalize({
+        "iCalUID": "tz2", "summary": "x", "etag": "e", "updated": "2026-11-22T00:00:00Z",
+        "start": {"dateTime": "2026-11-23T10:00:00+01:00"},
+        "end": {"dateTime": "2026-11-23T11:00:00+01:00"},
+    })
+    ical = event_to_ical(g).decode()
+    assert "DTSTART:20261123T090000Z" in ical, ical
+    passed += 1; print("PASS 13: offset-only Google time is written as UTC, never floating")
+
+    # 14. CalDAV->Google always names a zone (Google rejects recurring events
+    #     without one) and floating times use the calendar zone, not UTC.
+    bxl = ZoneInfo("Europe/Brussels")
+    f = _datetime_field(datetime(2026, 11, 23, 10, 0, tzinfo=bxl), "Europe/Brussels", "Europe/Brussels")
+    assert f == {"dateTime": "2026-11-23T10:00:00+01:00", "timeZone": "Europe/Brussels"}, f
+    f = _datetime_field(datetime(2026, 11, 23, 10, 0), None, "Europe/Brussels")  # floating
+    assert f == {"dateTime": "2026-11-23T10:00:00+01:00", "timeZone": "Europe/Brussels"}, f
+    f = _datetime_field(datetime(2026, 11, 23, 9, 0, tzinfo=timezone.utc), "UTC", "Europe/Brussels")
+    assert f == {"dateTime": "2026-11-23T10:00:00+01:00", "timeZone": "Europe/Brussels"}, f
+    passed += 1; print("PASS 14: CalDAV->Google always sends a time zone; floating != UTC")
+
+    # 15. Round trip is stable: Google -> CalDAV -> Google keeps the instant
+    #     (the old code shifted it by the UTC offset on every echo).
+    g = GoogleClient._normalize({
+        "iCalUID": "tz3", "summary": "Tai Chi", "etag": "e", "updated": "2026-11-22T00:00:00Z",
+        "start": {"dateTime": "2026-07-06T10:00:00+02:00", "timeZone": "Europe/Brussels"},
+        "end": {"dateTime": "2026-07-06T11:00:00+02:00", "timeZone": "Europe/Brussels"},
+        "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO", "EXDATE;TZID=Europe/Brussels:20260713T100000"],
+    })
+    back = ical_to_event(event_to_ical(g))
+    f = _datetime_field(back["start"], back["tzid"], "UTC")
+    assert f == {"dateTime": "2026-07-06T10:00:00+02:00", "timeZone": "Europe/Brussels"}, f
+    assert any(r.startswith("EXDATE;TZID=Europe/Brussels") for r in back["recurrence"]), back["recurrence"]
+    passed += 1; print("PASS 15: round trip keeps instant, zone and EXDATE zone")
+
     print("\nAll %d Phase 3 tests passed." % passed)
 
 

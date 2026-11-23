@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from dateutil import parser as dtparser
 from google.auth.transport.requests import Request
@@ -32,11 +33,28 @@ class GoogleClient:
         credentials_file: str,
         token_file: str,
         calendar_id: str = "primary",
+        default_timezone: Optional[str] = None,
     ) -> None:
         self.credentials_file = credentials_file
         self.token_file = token_file
         self.calendar_id = calendar_id
         self.service = self._build_service()
+        self._default_tz = default_timezone
+
+    @property
+    def default_tz(self) -> str:
+        """Zone used for floating CalDAV times and zone-less offsets.
+
+        An explicit setting wins; otherwise the Google calendar's own time zone
+        (fetched once). Google needs a zone for recurring events.
+        """
+        if self._default_tz is None:
+            try:
+                tz = self.service.calendars().get(calendarId=self.calendar_id).execute().get("timeZone")
+            except Exception:
+                tz = None
+            self._default_tz = tz if _valid_zone(tz) else "UTC"
+        return self._default_tz
 
     def _build_service(self):
         creds: Optional[Credentials] = None
@@ -120,8 +138,11 @@ class GoogleClient:
             start_dt = dtparser.parse(start["date"]).date()
             end_dt = dtparser.parse(end["date"]).date() if end.get("date") else None
         else:
-            start_dt = dtparser.parse(start["dateTime"])
-            end_dt = dtparser.parse(end["dateTime"]) if end.get("dateTime") else None
+            # Attach the event's real IANA zone. A bare fixed offset would be
+            # serialized to CalDAV as a *floating* time and lose the zone.
+            start_dt = _zoned(start["dateTime"], start.get("timeZone"))
+            end_dt = (_zoned(end["dateTime"], end.get("timeZone") or start.get("timeZone"))
+                      if end.get("dateTime") else None)
 
         attendees = None
         if raw.get("attendees"):
@@ -220,8 +241,7 @@ class GoogleClient:
             "google_updated": resp.get("updated"),
         }
 
-    @staticmethod
-    def _to_body(event: dict[str, Any]) -> dict[str, Any]:
+    def _to_body(self, event: dict[str, Any]) -> dict[str, Any]:
         body: dict[str, Any] = {"summary": event.get("summary") or "(no title)"}
         if event.get("description"):
             body["description"] = event["description"]
@@ -238,8 +258,9 @@ class GoogleClient:
             body["start"] = {"date": _date_str(start), "dateTime": None, "timeZone": None}
             body["end"] = {"date": _date_str(end), "dateTime": None, "timeZone": None}
         else:
-            body["start"] = {**_datetime_field(start, event.get("tzid")), "date": None}
-            body["end"] = {**_datetime_field(end, event.get("tzid")), "date": None}
+            tz = event.get("tzid")
+            body["start"] = {**_datetime_field(start, tz, self.default_tz), "date": None}
+            body["end"] = {**_datetime_field(end, tz, self.default_tz), "date": None}
 
         if event.get("recurrence"):
             body["recurrence"] = event["recurrence"]
@@ -269,10 +290,40 @@ def _date_str(value: Any) -> str:
     return str(value)[:10]
 
 
-def _datetime_field(value: datetime, tzid: Optional[str]) -> dict[str, str]:
-    """Build a Google dateTime field. Aware datetimes carry their offset;
-    naive ones get an explicit timeZone (falling back to UTC)."""
-    field = {"dateTime": value.isoformat()}
+def _valid_zone(name: Optional[str]) -> bool:
+    if not name:
+        return False
+    try:
+        ZoneInfo(name)
+        return True
+    except Exception:
+        return False
+
+
+def _zoned(value: str, tzname: Optional[str]) -> datetime:
+    """Parse a Google RFC3339 dateTime into a datetime in its IANA zone.
+
+    Without a usable zone name the instant is kept in UTC — never a bare
+    fixed offset, which CalDAV would store as floating time.
+    """
+    dt = dtparser.parse(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo(tzname) if _valid_zone(tzname) else timezone.utc)
+    return dt.astimezone(ZoneInfo(tzname) if _valid_zone(tzname) else timezone.utc)
+
+
+def _datetime_field(value: datetime, tzid: Optional[str], default_tz: str) -> dict[str, str]:
+    """Build a Google start/end field that always names a time zone.
+
+    Google rejects recurring events without one and stores a bare offset as
+    UTC, which shifts recurring events across DST. Floating (naive) CalDAV
+    times are interpreted in the calendar's default zone, not UTC.
+    """
+    # A UTC-anchored event gets the calendar's zone (same instant): earlier
+    # versions of this tool polluted events with timeZone=UTC.
+    zone = tzid if _valid_zone(tzid) and tzid != "UTC" else default_tz
     if value.tzinfo is None:
-        field["timeZone"] = tzid or "UTC"
-    return field
+        local = value.replace(tzinfo=ZoneInfo(zone))
+    else:
+        local = value.astimezone(ZoneInfo(zone))
+    return {"dateTime": local.isoformat(), "timeZone": zone}

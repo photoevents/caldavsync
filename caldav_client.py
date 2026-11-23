@@ -11,11 +11,14 @@ from datetime import datetime
 from typing import Any
 
 import caldav
+from caldav.elements import dav
 from caldav.lib.error import NotFoundError
 
 from ical_convert import ical_to_event
 
 log = logging.getLogger("caldavsync.caldav")
+
+_ETAG = "{DAV:}getetag"
 
 
 class CalDAVError(Exception):
@@ -49,17 +52,19 @@ class CalDAVClient:
         Uses date-range search so both sides reconcile over the same window
         (older caldav servers/libs fall back to listing all events).
         """
+        # Request getetag in the same REPORT. Without it every etag reads as
+        # None, so edits made on the CalDAV side are never detected.
         try:
-            raw_events = self.calendar.search(start=start, end=end, event=True, expand=False)
+            raw_events = self.calendar.search(start=start, end=end, event=True,
+                                              expand=False, props=[dav.GetEtag()])
         except (TypeError, NotImplementedError):
             raw_events = self.calendar.events()
 
         result: list[dict[str, Any]] = []
         for ev in raw_events:
+            etag = (getattr(ev, "props", None) or {}).get(_ETAG) or self._fetch_etag(ev)
             try:
-                normalized = ical_to_event(
-                    ev.data, href=str(ev.url), etag=getattr(ev, "etag", None)
-                )
+                normalized = ical_to_event(ev.data, href=str(ev.url), etag=etag)
             except Exception:
                 log.warning("Could not parse CalDAV event %s", getattr(ev, "url", "?"))
                 continue
@@ -71,14 +76,29 @@ class CalDAVClient:
     def create_event(self, ical_bytes: bytes) -> dict[str, Any]:
         """Create an event from an iCalendar document; return its href/etag."""
         ev = self.calendar.save_event(ical_bytes.decode("utf-8"))
-        return {"href": str(ev.url), "etag": getattr(ev, "etag", None)}
+        return {"href": str(ev.url), "etag": self._fetch_etag(ev)}
 
     def update_event(self, href: str, ical_bytes: bytes) -> dict[str, Any]:
-        """Phase 2: replace the event at href with new iCalendar content."""
-        ev = self.calendar.event_by_url(href)
-        ev.data = ical_bytes.decode("utf-8")
-        ev.save()
-        return {"href": str(ev.url), "etag": getattr(ev, "etag", None)}
+        """Replace the event at href with new iCalendar content.
+
+        A plain PUT, then re-read the etag: servers may rewrite the stored
+        data, so the PUT response etag can differ from what later reads show.
+        Storing that read-side etag is what keeps our own write from looking
+        like a CalDAV-side change on the next run (and being echoed back).
+        """
+        resp = self._client.put(href, ical_bytes.decode("utf-8"),
+                                {"Content-Type": 'text/calendar; charset="utf-8"'})
+        status = getattr(resp, "status", 200)
+        if status >= 300:
+            raise CalDAVError(f"PUT {href} failed: HTTP {status}")
+        return {"href": href, "etag": self._fetch_etag(self.calendar.event_by_url(href))}
+
+    @staticmethod
+    def _fetch_etag(ev) -> Any:
+        try:
+            return ev.get_properties([dav.GetEtag()]).get(_ETAG)
+        except Exception:
+            return None
 
     def delete_event(self, href: str) -> None:
         """Phase 2: delete the event at href (no-op if already gone)."""

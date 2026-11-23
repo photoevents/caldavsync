@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from typing import Any, Optional, Union
+from zoneinfo import ZoneInfo
 
 from dateutil import parser as dtparser
 from icalendar import Calendar, Event
@@ -36,10 +37,10 @@ def event_to_ical(event: dict[str, Any], uid: Optional[str] = None) -> bytes:
     vevent.add("summary", event.get("summary") or "(no title)")
     vevent.add("dtstamp", datetime.now(timezone.utc))
 
-    vevent.add("dtstart", event["start"])
+    vevent.add("dtstart", _ical_safe(event["start"]))
     end = event.get("end")
     if end is not None:
-        vevent.add("dtend", end)
+        vevent.add("dtend", _ical_safe(end))
 
     if event.get("description"):
         vevent.add("description", event["description"])
@@ -62,7 +63,21 @@ def event_to_ical(event: dict[str, Any], uid: Optional[str] = None) -> bytes:
             pass
 
     cal.add_component(vevent)
+    try:
+        cal.add_missing_timezones()  # VTIMEZONE for every TZID used (RFC 5545)
+    except Exception:
+        pass
     return cal.to_ical()
+
+
+def _ical_safe(value: Any) -> Any:
+    """Make a datetime safe to serialize: an IANA zone (written as TZID) or
+    UTC (written with Z). A fixed-offset tzinfo would otherwise be written as
+    a *floating* time, silently dropping the zone. Dates pass through."""
+    if isinstance(value, datetime) and value.tzinfo is not None \
+            and not isinstance(value.tzinfo, ZoneInfo):
+        return value.astimezone(timezone.utc)
+    return value
 
 
 def ical_to_event(
@@ -121,27 +136,40 @@ def ical_to_event(
 def _add_recurrence(vevent: Event, recurrence: Optional[list[str]]) -> None:
     """Apply Google-style recurrence strings (RRULE/EXDATE/RDATE) to a VEVENT.
 
-    RRULE is fully supported; EXDATE/RDATE are best-effort (TZID params may be
-    flattened to wall-clock values).
+    EXDATE/RDATE keep their TZID, so an exception still matches the
+    occurrence it cancels.
     """
     if not recurrence:
         return
     for line in recurrence:
         name, _, value = line.partition(":")
-        prop = name.split(";")[0].upper()
+        parts = name.split(";")
+        prop = parts[0].upper()
+        params = dict(p.split("=", 1) for p in parts[1:] if "=" in p)
         if not value:
             continue
         if prop == "RRULE":
             vevent.add("rrule", vRecur.from_ical(value))
         elif prop in ("EXDATE", "RDATE"):
+            zone = _zone_or_none(params.get("TZID"))
             dates = []
             for token in value.split(","):
                 try:
-                    dates.append(dtparser.parse(token))
+                    dt = dtparser.parse(token)
                 except (ValueError, TypeError):
-                    pass
+                    continue
+                if isinstance(dt, datetime) and dt.tzinfo is None and zone is not None:
+                    dt = dt.replace(tzinfo=zone)
+                dates.append(_ical_safe(dt))
             if dates:
                 vevent.add(prop.lower(), dates)
+
+
+def _zone_or_none(name: Optional[str]):
+    try:
+        return ZoneInfo(name) if name else None
+    except Exception:
+        return None
 
 
 def _read_recurrence(comp: Event) -> Optional[list[str]]:
@@ -153,7 +181,9 @@ def _read_recurrence(comp: Event) -> Optional[list[str]]:
         items = value if isinstance(value, list) else [value]
         for item in items:
             try:
-                out.append(f"{prop.upper()}:{item.to_ical().decode()}")
+                tzid = getattr(item, "params", {}).get("TZID")
+                head = f"{prop.upper()};TZID={tzid}" if tzid and prop != "rrule" else prop.upper()
+                out.append(f"{head}:{item.to_ical().decode()}")
             except Exception:
                 pass
     return out or None

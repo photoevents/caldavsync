@@ -1,7 +1,7 @@
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
-caldav
-icalendar
-pyyaml
-python-dateutil
+google-api-python-client==2.198.0
+google-auth-httplib2==0.4.0
+google-auth-oauthlib==1.4.0
+caldav==3.2.1
+icalendar==7.2.0
+pyyaml==6.0.3
+python-dateutil==2.9.0.post0

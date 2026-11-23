@@ -192,6 +192,14 @@ Anything speaking standard CalDAV: **Nextcloud** (primary target), **Radicale**,
 
 ## Troubleshooting
 
+- **Events an hour off, or Nextcloud edits not reaching Google (versions
+  before November 2026)** — older versions lost the time zone in both
+  directions and never read CalDAV etags, so a just-written event was pushed
+  back to Google interpreted as UTC (shifting it by the UTC offset), recurring
+  Nextcloud events were rejected by Google ("Missing time zone definition"),
+  and edits made in Nextcloud to existing events were not detected. Update,
+  then compare a few events on both sides; events mirrored from Google that
+  were later shifted show the correct wall-clock time on the CalDAV side.
 - **`insufficient permission` / scope errors** — an old read-only token. Delete
   `token.json` and re-run to re-authorize (the client detects the scope gap).
 - **`CalDAV calendar 'X' not found`** — the error lists available calendars;

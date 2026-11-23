@@ -339,6 +339,19 @@ def main():
     db.close(); passed += 1
     print("PASS 22: update of adopted event keeps CalDAV-side UID (no UID clash)")
 
+    # 23. Links stored before etags were read correctly have caldav_etag=None.
+    #     The first real etag must become the baseline, not trigger a push.
+    db = fresh_db()
+    db.upsert_state("u23", caldav_uid="u23", google_event_id="g_u23", google_etag="ge",
+                    caldav_href="http://cal/u23.ics", caldav_etag=None)
+    g = FakeGoogle([gevent("u23", "ge", NOW.isoformat())])
+    c = FakeCalDAV([cevent("u23", '"real-etag"', NOW.isoformat())])
+    s = engine(g, c, db).run_once()
+    assert s.unchanged == 1 and s.updated_google == 0 and s.conflicts == 0, s.summary()
+    assert db.get_state("u23")["caldav_etag"] == '"real-etag"', "baseline stored"
+    db.close(); passed += 1
+    print("PASS 23: unknown CalDAV etag becomes a baseline, no mass push")
+
     os.remove("test_p2.db")
     print("\nAll %d Phase 2 tests passed." % passed)
 
